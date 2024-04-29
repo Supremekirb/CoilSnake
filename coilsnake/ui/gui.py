@@ -155,6 +155,39 @@ class CoilSnakeGui(object):
             self.preferences["java"] = java_exe
             self.preferences.save()
 
+    def get_ebme_exe(self):
+        return self.preferences["ebme"]
+        
+    def set_ebme_exe(self):
+        tkinter.messagebox.showinfo(
+            "Select the EBME Executable",
+            "Select the EBME executable for CoilSnake to use.\n\n"
+            "On Windows, it might be called \"ebme.exe\"."
+        )
+
+        ebme_exe = tkinter.filedialog.askopenfilename(
+            parent=self.root,
+            title="Select the EBME Executable",
+            initialfile=(self.preferences["ebme"]))
+
+        if ebme_exe:
+            self.preferences["ebme"] = ebme_exe
+            self.preferences.save()
+
+    def get_editor(self):
+        return self.preferences["editor"]
+    
+    def set_editor(self):
+        current_editor = self.get_editor()
+        if current_editor == "ebme":
+            if tkinter.messagebox.askquestion("Configure Project Editor",
+                                              "EBME is the current default editor. Change to EB Project Editor?"):
+                self.preferences["editor"] = "ebprojed"
+        else:
+            if tkinter.messagebox.askquestion("Configure Project Editor",
+                                              "EB Project Editor is the current default editor. Change to EBME?"):
+                self.preferences["editor"] = "ebme"
+                
     def save_default_tab(self):
         tab_number = self.notebook.index(self.notebook.select())
         self.preferences.set_default_tab(tab_number)
@@ -228,6 +261,28 @@ Please configure Java in the Settings menu.""")
             command.append(os.path.join(project_path, PROJECT_FILENAME))
 
         Popen(command)
+
+    def open_ebme(self, entry=None):
+        if entry:
+            project_path = entry.get()
+        else:
+            project_path = None
+
+        ebme_exe = self.get_ebme_exe()
+        if not ebme_exe:
+            tkinter.messagebox.showerror(parent=self.root,
+                                   title="Error",
+                                   message="""CoilSnake could not find EBME.
+Please configure EBME in the Settings menu.""")
+            return
+        
+        command = [ebme_exe]
+        if project_path:
+            command.append("-p")
+            command.append(project_path)
+
+        Popen(command)
+
 
     # Actions
 
@@ -596,6 +651,8 @@ Please configure Java in the Settings menu.""")
         tools_menu = Menu(menubar, tearoff=0)
         tools_menu.add_command(label="EB Project Editor",
                                command=self.open_ebprojedit)
+        tools_menu.add_command(label="EBME",
+                               command=self.open_ebme)
         tools_menu.add_separator()
         tools_menu.add_command(label="Expand ROM to 32 MBit",
                                command=partial(gui_util.expand_rom, self.root))
@@ -614,6 +671,11 @@ Please configure Java in the Settings menu.""")
                                    command=self.set_emulator_exe)
         self.pref_menu.add_command(label="Configure Java",
                                    command=self.set_java_exe)
+        self.pref_menu.add_command(label="Configure EBME",
+                                   command=self.set_ebme_exe)
+        self.pref_menu.add_command(label="Configure project editor",
+                                   command=self.set_editor)
+
         self.pref_menu.add_separator()
         self.pref_menu.add_command(label="Configure CCScript",
                                    command=self.set_ccscript_offset)
@@ -996,7 +1058,11 @@ Please configure Java in the Settings menu.""")
             open_folder(project_entry)
 
         def edit_tmp():
-            self.open_ebprojedit(project_entry)
+            editor = self.get_editor()
+            if editor == "ebme":
+                self.open_ebme(project_entry)
+            else:
+                self.open_ebprojedit(project_entry)
 
         button = Button(project_frame, text="Browse...", command=browse_tmp, width=BUTTON_WIDTH)
         button.pack(side=LEFT)
