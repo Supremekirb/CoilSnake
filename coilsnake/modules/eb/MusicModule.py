@@ -9,7 +9,7 @@ import coilsnake.model.eb.musicpack as mp
 from coilsnake.model.eb.table import eb_table_from_offset
 from coilsnake.modules.common.PatchModule import get_ips_filename
 from coilsnake.modules.eb.EbModule import EbModule
-from coilsnake.util.common.yml import yml_load
+from coilsnake.util.common.yml import yml_load, yml_dump
 from coilsnake.util.eb.pointer import from_snes_address, to_snes_address
 
 log = logging.getLogger(__name__)
@@ -171,10 +171,24 @@ class MusicModule(EbModule):
             yml_song_lines += ('  {}\n'.format(line) for line in self.songs[song_num].to_yml_lines())
         with resourceOpener('Music/songs','yml',True) as f:
             f.writelines(yml_song_lines)
+            
+        # Create and write engine_data.yml
+        engine_data = {}
+        engine_data[mp.YML_ENGINE_SONG_TABLE_ADDRESS] = mp.EngineMusicPack.SONG_ADDRESS_TABLE_ADDR
+        with resourceOpener('Music/engine_data','yml',True) as f:
+            yml_dump(engine_data, f, default_flow_style=False)
 
     def read_from_project(self, resourceOpener):
         self.packs = []
         self.songs = {}
+        self.engine_data = {}
+        
+        # Read engine_data.yml
+        engine_data_yml_data = yml_load(resourceOpener('Music/engine_data','yml',True))
+        song_table_addr = engine_data_yml_data[mp.YML_ENGINE_SONG_TABLE_ADDRESS]
+        assert isinstance(song_table_addr, int), "Song table address must be an integer value. Receieved type {}".format(repr(song_table_addr))
+        self.engine_data[mp.YML_ENGINE_SONG_TABLE_ADDRESS] = engine_data_yml_data[mp.YML_ENGINE_SONG_TABLE_ADDRESS]
+        
         # Read songs.yml
         songs_yml_data = yml_load(resourceOpener('Music/songs','yml',True))
         # Look up with song pack, then song number. Result is data from YAML.
@@ -270,7 +284,7 @@ class MusicModule(EbModule):
                 type(self.packs[1]).__name__))
         song_address_table_data = Block(self.song_address_table.size)
         self.song_address_table.to_block(song_address_table_data, 0)
-        self.packs[0x01].set_song_address_table_data(song_address_table_data)
+        self.packs[0x01].set_song_address_table_data(song_address_table_data, self.engine_data[mp.YML_ENGINE_SONG_TABLE_ADDRESS])
         # Write out packs
         for i, pack in enumerate(self.packs):
             data = pack.get_pack_binary_data()

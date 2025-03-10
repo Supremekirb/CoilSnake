@@ -22,6 +22,8 @@ YML_SONG_OFFSET = "Offset"
 YML_SONG_ADDRESS = "Address"
 YML_SONG_PACK_BUILTIN = "in-engine"
 
+YML_ENGINE_SONG_TABLE_ADDRESS = "Song Table Address"
+
 INST_OVERWRITE = 0x00
 INST_DEFAULT = 0x1a
 SAMPLE_OFFSET_OVERWRITE = 0x7000
@@ -940,9 +942,9 @@ class EngineMusicPack(SongMusicPack):
         start_addr = EngineMusicPack.SONG_ADDRESS_TABLE_ADDR - EngineMusicPack.MAIN_PART_ADDR
         return block[start_addr:start_addr + size]
 
-    def set_song_address_table_data(self, block: Block) -> None:
+    def set_song_address_table_data(self, block: Block, song_address_table_addr: int) -> None:
         assert self.parts
-        self.set_aram_region(EngineMusicPack.SONG_ADDRESS_TABLE_ADDR, block.size, block)
+        self.set_aram_region(song_address_table_addr, block.size, block)
 
     @classmethod
     def apply_engine_patches(cls, engine_block: Block) -> Block:
