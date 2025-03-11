@@ -6,6 +6,10 @@ import sys
 sys.path.append(".")
 
 from coilsnake.ui.gui import main
+from coilsnake.ui.cli import main as cli_main
+
+def perform_windows_noconsole_workaround(argv):
+    return os.name == 'nt' and len(argv) == 1 and argv[0].endswith('.exe')
 
 def perform_windows_noconsole_workaround(argv):
     return os.name == 'nt' and len(argv) == 1 and argv[0].endswith('.exe')
