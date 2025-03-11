@@ -949,7 +949,7 @@ class EngineMusicPack(SongMusicPack):
         return block[start_addr:start_addr + size]
 
     def get_song_address_table_pointer(self) -> int:
-        # search for CoilSnake footerw
+        # search for CoilSnake footer
         # (there's probably a better way to do this. I don't know how to best work with Block objects.)
         engine_bytes = bytes(self.engine_parts[EngineMusicPack.MAIN_PART_ADDR].to_list())
         footer_match = EngineMusicPack.FOOTER_IDENTIFIER_BYTES
@@ -959,9 +959,9 @@ class EngineMusicPack(SongMusicPack):
         except OutOfBoundsError:
             pass
         if len(song_table_pointer_pointers) > 1:
-            raise InvalidUserDataError("engine.bin contains more than one footer pointing to the location of the song table. Found at: {}").format(
-                "$" + hex(i-len(footer_match))[2:].zfill(4) for i in song_table_pointer_pointers
-            )
+            raise InvalidUserDataError("engine.bin contains more than one footer pointing to the location of the song table. Found at: {}".format(
+                ["$" + hex(i-len(footer_match))[2:].zfill(4) for i in song_table_pointer_pointers]
+            ))
         
         if len(song_table_pointer_pointers) == 0:
             log.info("Using default song table location.")
