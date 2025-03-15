@@ -25,13 +25,19 @@ class ExpandedTablesModule(EbModule):
             AsmPointerReference(0x46831), # in func C4681A
             AsmPointerReference(0x46930), # in func C46914
         ],
+        0xD01400: [ # Screen transition config table
+            AsmPointerReference(0x06671), # in func C06662/Screen transition
+            AsmPointerReference(0x068BB), # in func C068AF/Get screen transition sound effect
+        ]
     }
 
     FREE_RANGES = [
         # psi names
         (from_snes_address(0xD58D7A), from_snes_address(0xD58F23 - 1)),
         # npc config table
-        (from_snes_address(0xCF8985), from_snes_address(0xCFF2B5 - 1))
+        (from_snes_address(0xCF8985), from_snes_address(0xCFF2B5 - 1)),
+        # screen transition config
+        (from_snes_address(0xD01400), from_snes_address(0xD01597 - 1))
     ]
 
 
