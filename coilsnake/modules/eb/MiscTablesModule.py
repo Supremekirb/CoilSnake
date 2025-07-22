@@ -22,6 +22,9 @@ class classproperty:
 
 class MiscTablesModule(EbModule):
     NAME = "Misc Tables"
+    # Key: offset
+    # Value: a list of PointerReference-like objects to apply patches to expand the table,
+    #        or a falsy value. A falsy value will be considered an unexpandable table.
     TABLE_OFFSETS = {
         0xD58D7A: [  # PSI NAMES
             AsmPointerReference(0x1c423)
@@ -88,9 +91,14 @@ class MiscTablesModule(EbModule):
 
     def write_to_rom(self, rom):
         for offset, table in self.tables.items():
-            new_table_offset = rom.allocate(size=table.size)
+            # unexpanded tables should remain in place
+            if self.TABLE_OFFSETS[offset]:
+                new_table_offset = rom.allocate(size=table.size)
+            else:
+                new_table_offset = from_snes_address(offset)
+            
             table.to_block(rom, new_table_offset)
-            log.info(f"Writing table '{table.name}' @ " + hex(to_snes_address(new_table_offset)))
+            log.info("Writing table '{}' @ ".format(table.name) + hex(to_snes_address(new_table_offset)))
             # Write pointers for expansion, only if there is a list of pointers. Otherwise consider it unexpanded
             if self.TABLE_OFFSETS[offset]:
                 for pointer in self.TABLE_OFFSETS[offset]:
@@ -100,13 +108,18 @@ class MiscTablesModule(EbModule):
                         log.warn("Table relocation at %#x failed structure check - skipping...", pointer.offset)
 
     def read_from_project(self, resource_open):
-        for table in self.tables.values():
+        for offset, table in self.tables.items():
             with resource_open(table.name.lower(), "yml", True) as f:
-                log.debug("Reading {}.yml".format(table.name.lower()))
-                yml_rep = yml_load(f)
-                num_rows = len(yml_rep)
-                table.recreate(num_rows=num_rows)
-                table.from_yml_rep(yml_rep)
+                # expanded table - recreate it with our new number of rows
+                if self.TABLE_OFFSETS[offset]:
+                    log.debug("Reading {}.yml as an expanded table".format(table.name.lower()))
+                    yml_rep = yml_load(f)
+                    num_rows = len(yml_rep)
+                    table.recreate(num_rows=num_rows)
+                    table.from_yml_rep(yml_rep)
+                # unexpanded table - standard process
+                else:
+                    table.from_yml_file(f)
 
     def write_to_project(self, resource_open):
         for table in self.tables.values():
