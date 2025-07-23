@@ -41,10 +41,6 @@ class MiscTablesModule(EbModule):
             AsmPointerReference(0x46831), # in func C4681A
             AsmPointerReference(0x46930), # in func C46914
         ],
-        0xD01400: [ # Screen transition config table
-            AsmPointerReference(0x06671), # in func C06662/Screen transition
-            AsmPointerReference(0x068BB), # in func C068AF/Get screen transition sound effect
-        ],
         0xC3FD8D: False,  # Attract mode text
         0xD5F645: False,  # Timed Item Delivery
         0xE12F8A: False,  # Photographer
