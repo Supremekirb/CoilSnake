@@ -129,7 +129,9 @@ def compile_project(project_path, base_rom_filename, output_rom_filename, ccscri
                     "-o", output_rom_filename] + script_filenames
         ccc_returncode, ccc_log = ccc(ccc_args)
 
-        if ccc_returncode == 0:
+        if ccc_returncode == 0 and ccc_log:
+            log.info("CCScript compilation succeeded with output:\n" + ccc_log)
+        elif ccc_returncode == 0:
             log.info("Finished compiling CCScript")
         else:
             raise CCScriptCompilationError("CCScript compilation failed with output:\n" + ccc_log)
