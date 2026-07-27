@@ -2,6 +2,7 @@ from array import array
 
 from PIL import Image
 
+from coilsnake.exceptions.common.exceptions import IndexOutOfRangeError, InvalidUserDataError
 from coilsnake.model.common.table import EnumeratedLittleEndianIntegerTableEntry, RowTableEntry, \
     LittleEndianIntegerTableEntry
 from coilsnake.util.common.helper import grouped
@@ -22,6 +23,8 @@ class EbBattleSprite(object):
         return (self.width // 32) * (self.height // 32) * 4 * 4 * 32
 
     def from_block(self, block, offset=0, size=0):
+        if size < 0 or size >= len(BATTLE_SPRITE_SIZES):
+            raise IndexOutOfRangeError("Invalid battle sprite size {}".format(size))
         width, height = BATTLE_SPRITE_SIZES[size]
         if (self.width != width) or (self.height != height):
             self.width = width
@@ -66,6 +69,9 @@ class EbBattleSprite(object):
 
     def from_image(self, image):
         if (self.width, self.height) != image.size:
+            (width, height) = image.size
+            if (width, height) not in BATTLE_SPRITE_SIZES:
+                raise InvalidUserDataError("Invalid sprite size {}x{}".format(width, height))
             self.width, self.height = image.size
             self.sprite = [array('B', [0] * self.width) for y in range(self.height)]
 

@@ -1,5 +1,6 @@
 import logging
 
+from coilsnake.exceptions.common.exceptions import IndexOutOfRangeError, InvalidUserDataError, CoilSnakeTraceableError
 from coilsnake.model.eb.blocks import EbCompressibleBlock
 from coilsnake.model.eb.enemy_groups import EnemyGroupTableEntry
 from coilsnake.model.eb.palettes import EbPalette
@@ -60,7 +61,10 @@ class EnemyModule(EbModule):
                     block=rom,
                     offset=from_snes_address(self.graphics_pointer_table[i][0]))
                 sprite = EbBattleSprite()
-                sprite.from_block(block=compressed_block, offset=0, size=self.graphics_pointer_table[i][1])
+                try:
+                    sprite.from_block(block=compressed_block, offset=0, size=self.graphics_pointer_table[i][1])
+                except IndexOutOfRangeError as e:
+                    raise CoilSnakeTraceableError("Error while reading battle sprite {} from ROM".format(i), e.args[0]) from e
                 self.battle_sprites.append(sprite)
 
         # Determine how many palettes there are
@@ -195,6 +199,9 @@ class EnemyModule(EbModule):
                 self.enemy_config_table[i][4] = 0
                 self.enemy_config_table[i][14] = 0
                 continue
+            except InvalidUserDataError as e:
+                # Something was wrong with the battle sprite image
+                raise CoilSnakeTraceableError("Error while reading battle sprite {0:03} from project".format(i), e.args[0]) from e
 
             sprite_hash = battle_sprite.hash()
             try:
