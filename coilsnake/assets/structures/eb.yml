@@ -414,16 +414,17 @@
     type: pointer
   - name: Frame duration (1/60th seconds)
     size: 1
-  - name: Palette duration (1/60th seconds)
+  - name: Palette cycle duration (1/60th seconds)
     size: 1
-  - name: unknown
-    size: 2
-    type: bytearray
+  - name: Palette cycle lower index
+    size: 1
+  - name: Palette cycle upper index
   - name: Frame count
     size: 1
-  - name: unknown 2
-    size: 2
-    type: bytearray
+  - name: Targetting
+    size: 1
+  - name: Delay before enemy colour change
+    size: 1
   - name: Duration of enemy colour change
     size: 1
   - name: Enemy colour
