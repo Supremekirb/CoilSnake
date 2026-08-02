@@ -419,6 +419,7 @@
   - name: Palette cycle lower index
     size: 1
   - name: Palette cycle upper index
+    size: 1
   - name: Frame count
     size: 1
   - name: Targetting
@@ -437,7 +438,7 @@
 13431935: &id091
   entries:
   - name: Palette
-    size: 16
+    size: 8
     type: palette
   name: PSI_ANIM_PALETTES
   offset: 13431935
