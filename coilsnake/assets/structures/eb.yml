@@ -423,6 +423,11 @@
   - name: Frame count
     size: 1
   - name: Targetting
+    values:
+    - single
+    - row
+    - all
+    - random
     size: 1
   - name: Delay before enemy colour change
     size: 1
