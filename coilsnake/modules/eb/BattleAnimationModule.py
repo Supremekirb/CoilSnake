@@ -13,16 +13,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
-BATTLE_ANIMATION_TARGET = ["one", "row", "all", "random"]
-
-BattleAnimationTargetEnum = enum_class_from_name_list(BATTLE_ANIMATION_TARGET)
-
 BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS = 0xCCF04D
 BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS = 0xCCF47F
 BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS = 0xCCF58F
+BATTLE_ANIMATIONS_TILESET_BANK_DEFAULT_ADDRESS = 0xCC0000
 
 BATTLE_ANIMATION_TABLE_REFERENCES = (
-    AsmPointerReference(0x02E34f),
+    AsmPointerReference(0x02E34F),
     XlPointerReference(0x02E153),
     XlPointerReference(0x02E1BA),
     XlPointerReference(0x02E509),
@@ -39,7 +36,6 @@ BATTLE_ANIMATION_TILESETS_REFERENCES = (
     AsmPointerReference(0x02E1A6),
 )
 
-BATTLE_ANIMATIONS_BANK = 0xCC
 
 # Common EbTileArrangement used to render the tileset to an image
 TILESET_IMAGE_ARRANGEMENT = EbTileArrangement(16, 16)
@@ -86,12 +82,11 @@ class BattleAnimation:
                 next_offset += frame.block_size()
     
     def arrangements_to_block(self):
-        size = sum(frame.block_size() for frame in self.arrangements)
-        block = EbCompressibleBlock(size)
+        block = EbCompressibleBlock(32*32*len(self.arrangements))
         next_offset = 0
         for frame in self.arrangements:
             frame.to_block(block, next_offset)
-            next_offset += frame.block_size()
+            next_offset += 32*32
         block.compress()
         return block
     
@@ -99,25 +94,11 @@ class BattleAnimation:
         self.arrangements = []
         self.frame_count = 0
         raw: str = map_file.read()
-        text_frames = raw.split("\n\n")
+        text_frames = raw.split("\n\n")[:-1] # Last split is the trailing gap
         
-        for text_frame in text_frames[:-1]: # Last split is the trailing gap
+        for text_frame in text_frames:
             arrangement = EbOneByteTileArrangement(32, 32)
-            
-            rows = text_frame.split("\n")
-            if len(rows) != 32:
-                raise CoilSnakeTraceableError("Frame #{}: Incorrect number of rows. Expected 32, got {}".format(
-                    self.frame_count, len(rows)))
-            
-            for y, row in enumerate(rows):
-                if len(row) != 96: # 32 tiles of 3 chars each, 2 letters and a space
-                    raise CoilSnakeTraceableError("Frame #{}: Incorrect number of columns. Expected 32, got {}".format(
-                        self.frame_count, len(row)
-                    ))
-                for x, tile in enumerate(row.split()):
-                    arrangement.arrangement[y][x] = EbOneByteTileArrangementItem(int(tile, 16))
-                    arrangement.arrangement[y][x].check_validity()
-            
+            arrangement.arrangement = [[EbOneByteTileArrangementItem(int(x, 16)) for x in y.split()] for y in text_frame.split("\n")]
             self.arrangements.append(arrangement)
             self.frame_count += 1
     
@@ -140,16 +121,90 @@ class BattleAnimationModule(EbModule):
         self.tilesets: list[EbGraphicTileset] = [] # List of tilesets, for deduplication purposes
         
     def read_from_rom(self, rom):
+        # Before this module was added, PSI animations were expanded manually
+        # and applied to a base ROM for future compilations.
+        # That means we need to read the code to find pointers to potentially relocated
+        # tables, and do some guesswork (fancy programmers call it "heuristics") to find the length.
+        config_ptr = BATTLE_ANIMATION_TABLE_REFERENCES[0].read(rom)
+        if not config_ptr:
+            log.warning("Code-read battle animation table reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_TABLE_REFERENCES[0].offset))
+            config_ptr = BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS
+        
+        palettes_ptr = BATTLE_ANIMATION_PALETTE_TABLE_REFERENCES[0].read(rom)
+        if not palettes_ptr:
+            log.warning("Code-read battle animation palettes reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_PALETTE_TABLE_REFERENCES[0].offset))
+            palettes_ptr = BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS
+
+        arrangements_ptrs_ptr = BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES[0].read(rom)
+        if not arrangements_ptrs_ptr:
+            log.warning("Code-read battle animation arrangement pointer table reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES[0].offset))
+            arrangements_ptrs_ptr = BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS
+        
+        tilesets_bank_ptr = BATTLE_ANIMATION_TILESETS_REFERENCES[0].read(rom)
+        if not tilesets_bank_ptr or tilesets_bank_ptr & 0xFFFF != 0: # Pointer should only include the bank byte
+            log.warning("Code-read battle animation tileset bank reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_TILESETS_REFERENCES[0].offset))
+            tilesets_bank_ptr = BATTLE_ANIMATIONS_TILESET_BANK_DEFAULT_ADDRESS
+            
+        log.info("Found battle animation pointers:\n  Config table: ${:06X}\n  Palettes: ${:06X}\n  Arrangement ptrs: ${:06X}\n  Tileset bank: ${:06X}".format(
+            config_ptr, palettes_ptr, arrangements_ptrs_ptr, tilesets_bank_ptr
+        ))
+        
+        # Now we need to guess the length of things.
+        guessed_length = 0
+        while True:
+            # Keep going until any of these happen:
+            # - Arrangement ptr is invalid, null, or goes over bank boundary
+            # - Config table goes over bank boundary
+            # - Decompressed arrangement data is not a multiple of the frame size
+            # - Decompressed tileset length is incorrect
+            # Other things which could be added:
+            # - Check for data overlap
+            
+            # Check arrangement pointer table
+            arrangement_ptr_ptr = arrangements_ptrs_ptr + guessed_length*self.arrangement_ptr_table.schema.size
+            arrangement_ptr = rom.read_multi(from_snes_address(arrangement_ptr_ptr), 4)
+            if arrangement_ptr_ptr & 0xFF0000 != arrangements_ptrs_ptr & 0xFF0000:
+                # Bank cross
+                log.info("Battle animation count stopping at {} due to arrangement pointer table bank cross".format(guessed_length))
+                break
+            if arrangement_ptr == 0 or arrangement_ptr & 0xFF000000:
+                # Null or upper byte is set which is invalid
+                log.info("Battle animation count stopping at {} due to invalid arrangement pointer ${:06X}".format(guessed_length, arrangement_ptr))
+                break
+            
+            # Check config table
+            cfg_table_entry = config_ptr + guessed_length*self.battle_animation_table.schema.size
+            if cfg_table_entry & 0xFF0000 != config_ptr & 0xFF0000:
+                # Bank cross
+                log.info("Battle animation count stopping at {} due to config table bank cross".format(guessed_length))
+                break
+            # Check decomp'd arrangement data is a multiple of the frame size
+            # Can't do framecount because Rockin G has 10 unused frames and the Switch Online ROM trims off a couple frames on Counter-PSI Unit
+            with EbCompressibleBlock() as arrangement_block:
+                arrangement_block.from_compressed_block(rom, from_snes_address(arrangement_ptr))
+                if arrangement_block.size % 1024: # Sizeof a frame of decomp'd data
+                    log.info("Battle animation count stopping at {} due to arrangement data not being a multiple of frame size".format(guessed_length))
+                    break
+            
+            guessed_length += 1
+        
+        # Recreate the tables at the correct size
+        self.battle_animation_table.recreate(num_rows=guessed_length)
+        self.palette_table.recreate(num_rows=guessed_length)
+        self.arrangement_ptr_table.recreate(num_rows=guessed_length)
+        
+        # Actually dump the data
         self.battle_animation_table.from_block(
-            rom, offset=from_snes_address(BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS)
+            rom, offset=from_snes_address(config_ptr)
         )
         self.palette_table.from_block(
-            rom, offset=from_snes_address(BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS)
+            rom, offset=from_snes_address(palettes_ptr)
         )
         self.arrangement_ptr_table.from_block(
-            rom, offset=from_snes_address(BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS)
+            rom, offset=from_snes_address(arrangements_ptrs_ptr)
         )
         
+        # Translate to internal format
         known_tilesets = {} # Maps short addresses to indexes in self.tilesets
         
         for index in range(self.battle_animation_table.num_rows):
@@ -161,7 +216,7 @@ class BattleAnimationModule(EbModule):
             arrangement_ptr = from_snes_address(self.arrangement_ptr_table[index][0])
             battle_animation.arrangements_from_block(rom, arrangement_ptr)
         
-            tileset_ptr = from_snes_address(battle_animation.tileset_pointer_short + (BATTLE_ANIMATIONS_BANK << 16))
+            tileset_ptr = from_snes_address(battle_animation.tileset_pointer_short | tilesets_bank_ptr)
             # Keep track of tilesets we've already seen and skip duplicating them
             # Not as crucial here as it is when writing ...
             if not tileset_ptr in known_tilesets:
@@ -272,6 +327,9 @@ class BattleAnimationModule(EbModule):
         self.palette_table.recreate(num_rows=self.battle_animation_table.num_rows)
         self.arrangement_ptr_table.recreate(num_rows=self.battle_animation_table.num_rows)
         
+        # For deduplication
+        known_tilesets = {}
+        
         for animation_id in range(self.battle_animation_table.num_rows):
             try:
                 data = self.battle_animation_table[animation_id]
@@ -290,15 +348,14 @@ class BattleAnimationModule(EbModule):
                     self.palette_table[animation_id] = [palette]
                     
                     # Dedup identical tilesets
-                    known_tilesets = {}
+                    # TODO -- trim end of tilesets past the max used tile ID
                     tileset = EbGraphicTileset(256)
                     tileset.from_image(tileset_image, TILESET_IMAGE_ARRANGEMENT, palette)
-                    if str(tileset.tiles) not in known_tilesets:
-                        # Converting to a string so it's hashable and can be put in a dict.
-                        # Probably stupid. Let me know if you have a better idea
-                        known_tilesets[str(tileset.tiles)] = len(self.tilesets)
+                    tileset_hash = tileset.hash()
+                    if tileset_hash not in known_tilesets.keys():
+                        known_tilesets[tileset_hash] = len(self.tilesets)
                         self.tilesets.append(tileset)
-                    animation.tileset = self.tilesets[known_tilesets[str(tileset.tiles)]]
+                    animation.tileset = self.tilesets[known_tilesets[tileset_hash]]
                 
                 with resource_open("BattleAnimations/{:02d}/arrangement".format(animation_id), "map", True) as map_f:
                     animation.arrangements_from_map(map_f) # Frame count is filled in now

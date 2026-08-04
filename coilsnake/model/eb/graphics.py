@@ -3,6 +3,8 @@ from copy import deepcopy
 
 from PIL import Image
 
+from zlib import crc32
+
 from coilsnake.exceptions.common.exceptions import InvalidArgumentError, OutOfBoundsError, InvalidUserDataError
 from coilsnake.model.eb.blocks import EbCompressibleBlock
 from coilsnake.model.eb.palettes import EbPalette, EbColor
@@ -208,6 +210,13 @@ class EbGraphicTileset(EqualityMixin):
 
     def __getitem__(self, key):
         return self.tiles[key]
+
+    def hash(self):
+        csum = 0
+        for tile in self.tiles:
+            for row in tile:
+                csum = crc32(bytes(row), csum) & 0xffffffff
+        return csum
 
 
 class EbTileArrangementItem(EqualityMixin, StringRepresentationMixin):
