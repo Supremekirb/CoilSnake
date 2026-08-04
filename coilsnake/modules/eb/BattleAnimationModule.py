@@ -6,8 +6,7 @@ from coilsnake.model.eb.table import eb_table_from_offset
 from coilsnake.modules.eb.EbModule import EbModule
 from coilsnake.util.eb.pointer import from_snes_address, to_snes_address, AsmPointerReference, XlPointerReference
 from coilsnake.util.common.image import open_indexed_image
-from coilsnake.util.common.yml import yml_dump, yml_load
-from coilsnake.util.common.type import enum_class_from_name_list
+from coilsnake.util.common.yml import yml_load
 
 import logging
 
