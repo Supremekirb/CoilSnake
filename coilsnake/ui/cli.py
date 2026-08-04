@@ -32,6 +32,7 @@ def main():
     upgrade_parser = subparsers.add_parser("upgrade",
                                            help="upgrade a project which was created by an older version of CoilSnake")
     upgrade_parser.add_argument("base_rom")
+    upgrade_parser.add_argument("old_compiled_rom")
     upgrade_parser.add_argument("project_directory")
     upgrade_parser.set_defaults(func=_upgrade)
 
@@ -98,6 +99,7 @@ def _decompile(args):
 
 def _upgrade(args):
     upgrade_project(base_rom_filename=args.base_rom,
+                    old_compiled_rom_filename=args.old_compiled_rom,
                     project_path=args.project_directory)
 
 def _scriptdump(args):

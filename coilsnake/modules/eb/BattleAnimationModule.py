@@ -389,7 +389,9 @@ class BattleAnimationModule(EbModule):
         with resource_open("BattleAnimations/battle_animations", "yml", True) as f:
             self.battle_animation_table.to_yml_file(f)
     
-    def upgrade_project(self, old_version, new_version, rom, resource_open_r, resource_open_w, resource_delete):
+    def upgrade_project(self, old_version, new_version, rom, old_compiled_rom, resource_open_r, resource_open_w, resource_delete):
         if old_version < 14:
-            self.read_from_rom(rom)
+            self.read_from_rom(old_compiled_rom)
+            # We use the old compiled ROM because, in CoilSnake projects prior to the addition of this module,
+            # typically battle animation repointing happens via CCScript at compile-time.
             self.write_to_project(resource_open_w)

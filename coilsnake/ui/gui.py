@@ -311,8 +311,9 @@ Please configure Java in the Settings menu.""")
         self.progress_bar.clear()
         self.enable_all_components()
 
-    def do_upgrade(self, rom_entry, project_entry):
+    def do_upgrade(self, rom_entry, old_rom_entry, project_entry):
         rom = rom_entry.get()
+        old_rom = old_rom_entry.get()
         project = project_entry.get()
 
         if rom and project:
@@ -331,12 +332,12 @@ Please configure Java in the Settings menu.""")
             self.disable_all_components()
 
             self.progress_bar.clear()
-            thread = Thread(target=self._do_upgrade_help, args=(rom, project))
+            thread = Thread(target=self._do_upgrade_help, args=(rom, old_rom, project))
             thread.start()
 
-    def _do_upgrade_help(self, rom, project):
+    def _do_upgrade_help(self, rom, old_rom, project):
         try:
-            upgrade_project(project_path=project, base_rom_filename=rom, progress_bar=self.progress_bar)
+            upgrade_project(project_path=project, base_rom_filename=rom, old_compiled_rom_filename=old_rom, progress_bar=self.progress_bar)
         except Exception as inst:
             log.debug(format_exc())
             log.error(inst)
@@ -697,13 +698,15 @@ Please configure Java in the Settings menu.""")
                                       frame=upgrade_frame)
 
         rom_entry = self.add_rom_fields_to_frame(name="Clean ROM", frame=upgrade_frame)
+        old_rom_entry = self.add_rom_fields_to_frame(name="Existing compiled ROM", frame=upgrade_frame)
         project_entry = self.add_project_fields_to_frame(name="Project", frame=upgrade_frame)
 
         def upgrade_tmp():
             self.preferences["default upgrade rom"] = rom_entry.get()
+            self.preferences["default upgrade old rom"] = old_rom_entry.get()
             self.preferences["default upgrade project"] = project_entry.get()
             self.preferences.save()
-            self.do_upgrade(rom_entry, project_entry)
+            self.do_upgrade(rom_entry, old_rom_entry, project_entry)
 
         self.upgrade_button = Button(upgrade_frame, text="Upgrade", command=upgrade_tmp)
         self.upgrade_button.pack(fill=X, expand=1)
@@ -712,6 +715,10 @@ Please configure Java in the Settings menu.""")
         if self.preferences["default upgrade rom"]:
             set_entry_text(entry=rom_entry,
                            text=self.preferences["default upgrade rom"])
+        
+        if self.preferences["default upgrade old rom"]:
+            set_entry_text(entry=old_rom_entry,
+                           text=self.preferences["default upgrade old rom"])
 
         if self.preferences["default upgrade project"]:
             set_entry_text(entry=project_entry,
