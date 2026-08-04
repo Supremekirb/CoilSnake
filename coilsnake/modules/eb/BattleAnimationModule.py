@@ -332,6 +332,7 @@ class BattleAnimationModule(EbModule):
         
         # For deduplication
         known_tilesets = {}
+        tilesets_max_ID_used = []
         
         for animation_id in range(self.battle_animation_table.num_rows):
             try:
@@ -358,15 +359,27 @@ class BattleAnimationModule(EbModule):
                     if tileset_hash not in known_tilesets.keys():
                         known_tilesets[tileset_hash] = len(self.tilesets)
                         self.tilesets.append(tileset)
+                        tilesets_max_ID_used.append(0) # Populate later
                     animation.tileset = self.tilesets[known_tilesets[tileset_hash]]
                 
                 with resource_open("BattleAnimations/{:02d}/arrangement".format(animation_id), "map", True) as map_f:
                     animation.arrangements_from_map(map_f) # Frame count is filled in now
                     # Will fill in the arrangement pointers when we actually have the arrangements in the ROM
                     
+                    # Find max tile ID used
+                    tilesets_max_ID_used[known_tilesets[tileset_hash]] = max(
+                        tilesets_max_ID_used[known_tilesets[tileset_hash]], 
+                        max(max(max(tile.tile for tile in row) for row in arrangement.arrangement) for arrangement in animation.arrangements)
+                        )
+                    
             except Exception as e:
                 message = "Encountered an error while reading battle animation #{}.".format(animation_id)
                 raise CoilSnakeTraceableError(message, e)
+        
+        # Trim tilesets past max ID
+        for index, tileset in enumerate(self.tilesets):
+            tileset.num_tiles_maximum = tilesets_max_ID_used[index]+1
+            tileset.tiles = tileset.tiles[:tileset.num_tiles_maximum]
         
     def write_to_project(self, resource_open):
         for i, animation in enumerate(self.battle_animations):
