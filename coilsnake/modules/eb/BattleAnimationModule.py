@@ -101,6 +101,9 @@ class BattleAnimation:
             arrangement.arrangement = [[EbOneByteTileArrangementItem(int(x, 16)) for x in y.split()] for y in text_frame.split("\n")]
             self.arrangements.append(arrangement)
             self.frame_count += 1
+            
+        if self.frame_count > 64:
+            raise Exception("Frame count cannot exceed 64 frames.")
     
 
 class BattleAnimationModule(EbModule):
