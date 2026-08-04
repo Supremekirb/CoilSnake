@@ -1,8 +1,10 @@
 from coilsnake.exceptions.common.exceptions import CoilSnakeTraceableError
+from coilsnake.model.common.ips import IpsPatch
 from coilsnake.model.eb.blocks import EbCompressibleBlock
 from coilsnake.model.eb.graphics import EbGraphicTileset, EbOneByteTileArrangement, EbTileArrangement, EbOneByteTileArrangementItem
 from coilsnake.model.eb.palettes import EbPalette
 from coilsnake.model.eb.table import eb_table_from_offset
+from coilsnake.modules.common.PatchModule import get_ips_filename
 from coilsnake.modules.eb.EbModule import EbModule
 from coilsnake.util.eb.pointer import from_snes_address, to_snes_address, AsmPointerReference, XlPointerReference
 from coilsnake.util.common.image import open_indexed_image
@@ -11,6 +13,8 @@ from coilsnake.util.common.yml import yml_load
 import logging
 
 log = logging.getLogger(__name__)
+
+DEFAULT_ANIMATION_COUNT = 34
 
 BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS = 0xCCF04D
 BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS = 0xCCF47F
@@ -234,6 +238,19 @@ class BattleAnimationModule(EbModule):
             self.battle_animations.append(battle_animation)
     
     def write_to_rom(self, rom):
+        # If necessary, apply the battle animation expansion patch.
+        # The range this patch covers is not currently marked as free, so it's OK to use.
+        # But if that ever changes then this may break.
+        # (Ranges: 3F98D - 3F98F, 3FE00 - 3FE20)
+        if len(self.battle_animations) > DEFAULT_ANIMATION_COUNT:
+            # The patch causes battle animations #34 and up, when called via script (or the function at C3F981),
+            # to require being called starting at ID 55 (56 in CCScript) instead of ID 34.
+            # This is because battle animations and the HDMA-based enemy-attack animations share the same ID space.
+            log.info("Applying battle animation expansion patch")
+            patch = IpsPatch()
+            patch.load(get_ips_filename(rom.type, "battle_animation_expand"))
+            patch.apply(rom)           
+        
         # Write palette table
         palette_table_offset = rom.allocate(size=self.palette_table.size)
         self.palette_table.to_block(rom, palette_table_offset)
