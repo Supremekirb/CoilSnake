@@ -352,7 +352,6 @@ class BattleAnimationModule(EbModule):
                     self.palette_table[animation_id] = [palette]
                     
                     # Dedup identical tilesets
-                    # TODO -- trim end of tilesets past the max used tile ID
                     tileset = EbGraphicTileset(256)
                     tileset.from_image(tileset_image, TILESET_IMAGE_ARRANGEMENT, palette)
                     tileset_hash = tileset.hash()
