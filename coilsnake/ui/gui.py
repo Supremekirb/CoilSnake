@@ -25,7 +25,7 @@ from coilsnake.ui.common import decompile_rom, compile_project, upgrade_project,
     patch_rom, create_patch
 from coilsnake.ui.gui_preferences import CoilSnakePreferences
 from coilsnake.ui.gui_util import browse_for_patch, browse_for_rom, browse_for_project, open_folder, set_entry_text, \
-    find_system_java_exe
+    find_system_java_exe, ROM_FILETYPES
 from coilsnake.ui.information import coilsnake_about
 from coilsnake.ui.widgets import ThreadSafeConsole, CoilSnakeGuiProgressBar
 from coilsnake.util.common.project import PROJECT_FILENAME
@@ -311,9 +311,8 @@ Please configure Java in the Settings menu.""")
         self.progress_bar.clear()
         self.enable_all_components()
 
-    def do_upgrade(self, rom_entry, old_rom_entry, project_entry):
+    def do_upgrade(self, rom_entry, project_entry):
         rom = rom_entry.get()
-        old_rom = old_rom_entry.get()
         project = project_entry.get()
 
         if rom and project:
@@ -324,6 +323,27 @@ Please configure Java in the Settings menu.""")
                                                icon='warning')
             if confirm != "yes":
                 return
+            
+            has_old = tkinter.messagebox.askyesnocancel("Do you have expanded battle animations?",
+                                        "Does this project have expanded battle animations via Jeffman's PSI Animation Editor?\n\n"
+                                        + "If it does, select \"Yes\" and then provide the ROM that was produced after compiling.\n"
+                                        + "After the upgrade, remove the relevant entries in used_ranges.yml and delete the CCScript file that repoints the data.\n\n"
+                                        + "If you don't have expanded animations, or don't mind losing them in the upgrade, select \"No\".")
+            if has_old is True:
+                old_rom = tkinter.filedialog.askopenfilename(parent=self.root, 
+                                                            initialdir=os.path.expanduser("~"),
+                                                            title="Select existing compiled ROM",
+                                                            filetypes=ROM_FILETYPES)
+                if not old_rom:
+                    # User cancalled the file picker
+                    return
+            elif has_old is False:
+                # Use the same as the base ROM if the user selects "No"
+                old_rom = rom
+            else:
+                # User selected "Cancel" when prompted for a modified base ROM
+                return
+            
 
             self.save_default_tab()
 
@@ -698,15 +718,13 @@ Please configure Java in the Settings menu.""")
                                       frame=upgrade_frame)
 
         rom_entry = self.add_rom_fields_to_frame(name="Clean ROM", frame=upgrade_frame)
-        old_rom_entry = self.add_rom_fields_to_frame(name="Existing compiled ROM", frame=upgrade_frame)
         project_entry = self.add_project_fields_to_frame(name="Project", frame=upgrade_frame)
 
         def upgrade_tmp():
             self.preferences["default upgrade rom"] = rom_entry.get()
-            self.preferences["default upgrade old rom"] = old_rom_entry.get()
             self.preferences["default upgrade project"] = project_entry.get()
             self.preferences.save()
-            self.do_upgrade(rom_entry, old_rom_entry, project_entry)
+            self.do_upgrade(rom_entry, project_entry)
 
         self.upgrade_button = Button(upgrade_frame, text="Upgrade", command=upgrade_tmp)
         self.upgrade_button.pack(fill=X, expand=1)
@@ -715,10 +733,7 @@ Please configure Java in the Settings menu.""")
         if self.preferences["default upgrade rom"]:
             set_entry_text(entry=rom_entry,
                            text=self.preferences["default upgrade rom"])
-        
-        if self.preferences["default upgrade old rom"]:
-            set_entry_text(entry=old_rom_entry,
-                           text=self.preferences["default upgrade old rom"])
+
 
         if self.preferences["default upgrade project"]:
             set_entry_text(entry=project_entry,
