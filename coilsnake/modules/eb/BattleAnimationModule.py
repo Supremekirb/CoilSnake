@@ -19,7 +19,7 @@ DEFAULT_ANIMATION_COUNT = 34
 BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS = 0xCCF04D
 BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS = 0xCCF47F
 BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS = 0xCCF58F
-BATTLE_ANIMATIONS_TILESET_BANK_DEFAULT_ADDRESS = 0xCC0000
+BATTLE_ANIMATION_TILESET_BANK_DEFAULT_ADDRESS = 0xCC0000
 
 BATTLE_ANIMATION_TABLE_REFERENCES = (
     AsmPointerReference(0x02E34F),
@@ -33,8 +33,8 @@ BATTLE_ANIMATION_PALETTE_TABLE_REFERENCES = (
 BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES = (
     AsmPointerReference(0x02E461),
 )
-BATTLE_ANIMATION_TILESETS_REFERENCES = (
-    # Pointer to the bank which the compressed tilesets are in
+BATTLE_ANIMATION_TILESET_BANK_REFERENCES = (
+    # 32-bit pointer to the bank which the compressed tilesets are in; then the game adds the short tileset pointer after
     AsmPointerReference(0x02E13F),
     AsmPointerReference(0x02E1A6),
 )
@@ -146,10 +146,10 @@ class BattleAnimationModule(EbModule):
             log.warning("Code-read battle animation arrangement pointer table reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES[0].offset))
             arrangements_ptrs_ptr = BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS
         
-        tilesets_bank_ptr = BATTLE_ANIMATION_TILESETS_REFERENCES[0].read(rom)
+        tilesets_bank_ptr = BATTLE_ANIMATION_TILESET_BANK_REFERENCES[0].read(rom)
         if not tilesets_bank_ptr or tilesets_bank_ptr & 0xFFFF != 0: # Pointer should only include the bank byte
-            log.warning("Code-read battle animation tileset bank reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_TILESETS_REFERENCES[0].offset))
-            tilesets_bank_ptr = BATTLE_ANIMATIONS_TILESET_BANK_DEFAULT_ADDRESS
+            log.warning("Code-read battle animation tileset bank reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_TILESET_BANK_REFERENCES[0].offset))
+            tilesets_bank_ptr = BATTLE_ANIMATION_TILESET_BANK_DEFAULT_ADDRESS
             
         log.info("Found battle animation pointers:\n  Config table: ${:06X}\n  Palettes: ${:06X}\n  Arrangement ptrs: ${:06X}\n  Tileset bank: ${:06X}".format(
             config_ptr, palettes_ptr, arrangements_ptrs_ptr, tilesets_bank_ptr
@@ -162,7 +162,6 @@ class BattleAnimationModule(EbModule):
             # - Arrangement ptr is invalid, null, or goes over bank boundary
             # - Config table goes over bank boundary
             # - Decompressed arrangement data is not a multiple of the frame size
-            # - Decompressed tileset length is incorrect
             # Other things which could be added:
             # - Check for data overlap
             
@@ -295,12 +294,11 @@ class BattleAnimationModule(EbModule):
         
         # Write the compressed tilesets
         for compressed in tilesets_compressed:
-            # compressed.to_block(rom, current_tileset_offset)
             rom.to_block(compressed, current_tileset_offset)
             tileset_short_ptrs.append(current_tileset_offset & 0xFFFF)
             current_tileset_offset += compressed.size
         # Repoint them
-        for reference in BATTLE_ANIMATION_TILESETS_REFERENCES:
+        for reference in BATTLE_ANIMATION_TILESET_BANK_REFERENCES:
             if reference.validate_structure(rom):
                 reference.write(rom, to_snes_address(tilesets_bank_only))
             else:
@@ -402,7 +400,6 @@ class BattleAnimationModule(EbModule):
             # This is called ".map" just like the overworld map but it is a little different.
             # - Tile indexes are 2-digit instead of 3-digit (we can only have 256 tiles)
             # - The data is arranged into a series of rectangles representing a frame each
-            # - Maybe we need a different file extension...
             with resource_open("BattleAnimations/{:02d}/arrangement".format(i), "map", True) as f:
                 for frame in animation.arrangements:
                     for row in range(frame.height):
