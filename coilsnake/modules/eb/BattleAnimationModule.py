@@ -51,7 +51,7 @@ del tile_id_to_write
 
 # Common EbPalette used to render the tileset to an image
 # Grayscale
-TILESET_IMAGE_PALETTE = EbPalette(1, 4, (0, 0, 0, 64, 64, 64, 128, 128, 128, 255, 255, 255))
+TILESET_IMAGE_PALETTE = EbPalette(1, 4, (0, 0, 0, 85, 85, 85, 170, 170, 170, 255, 255, 255))
 
 class BattleAnimation:
     def __init__(self,
