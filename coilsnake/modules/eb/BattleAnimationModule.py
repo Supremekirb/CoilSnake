@@ -8,7 +8,7 @@ from coilsnake.modules.common.PatchModule import get_ips_filename
 from coilsnake.modules.eb.EbModule import EbModule
 from coilsnake.util.eb.pointer import from_snes_address, to_snes_address, AsmPointerReference, XlPointerReference
 from coilsnake.util.common.image import open_indexed_image
-from coilsnake.util.common.yml import yml_load
+from coilsnake.util.common.yml import yml_load, yml_dump
 
 import logging
 
@@ -48,6 +48,10 @@ for tile_row in TILESET_IMAGE_ARRANGEMENT.arrangement:
         tile.tile = tile_id_to_write
         tile_id_to_write += 1
 del tile_id_to_write
+
+# Common EbPalette used to render the tileset to an image
+# Grayscale
+TILESET_IMAGE_PALETTE = EbPalette(1, 4, (0, 0, 0, 64, 64, 64, 128, 128, 128, 255, 255, 255))
 
 class BattleAnimation:
     def __init__(self,
@@ -124,7 +128,7 @@ class BattleAnimationModule(EbModule):
         self.arrangement_ptr_table = eb_table_from_offset(BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS)
         self.battle_animations: list[BattleAnimation] = []
         
-        self.tilesets: list[EbGraphicTileset] = [] # List of tilesets, for deduplication purposes
+        self.tilesets: list[EbGraphicTileset] = []
         
     def read_from_rom(self, rom):
         # Before this module was added, PSI animations were expanded manually
@@ -344,8 +348,8 @@ class BattleAnimationModule(EbModule):
         self.palette_table.recreate(num_rows=self.battle_animation_table.num_rows)
         self.arrangement_ptr_table.recreate(num_rows=self.battle_animation_table.num_rows)
         
-        # For deduplication
-        known_tilesets = {}
+        # For trimming data
+        known_tilesets = {} # Key: ID from yaml | val: Index into self.tilesets
         tilesets_max_ID_used = []
         
         for animation_id in range(self.battle_animation_table.num_rows):
@@ -357,31 +361,31 @@ class BattleAnimationModule(EbModule):
                 # We'll fill in frame count here after we read the map files,
                 # and tileset pointer after we figure out where it's going in the ROM
                 
-                with resource_open("BattleAnimations/{:02d}/tileset".format(animation_id), "png") as tileset_f:
-                    tileset_image = open_indexed_image(tileset_f)
-                    
-                    palette = EbPalette(1, 4)
-                    palette.from_image(tileset_image)
-                    animation.palette = palette
-                    self.palette_table[animation_id] = [palette]
-                    
-                    # Dedup identical tilesets
-                    tileset = EbGraphicTileset(256)
-                    tileset.from_image(tileset_image, TILESET_IMAGE_ARRANGEMENT, palette)
-                    tileset_hash = tileset.hash()
-                    if tileset_hash not in known_tilesets.keys():
-                        known_tilesets[tileset_hash] = len(self.tilesets)
-                        self.tilesets.append(tileset)
-                        tilesets_max_ID_used.append(0) # Populate later
-                    animation.tileset = self.tilesets[known_tilesets[tileset_hash]]
+                # Get palette
+                animation.palette = EbPalette(1, 4)
+                animation.palette.from_yml_rep(yml_rep[animation_id]["Palette"])
+                self.palette_table[animation_id] = [animation.palette]
                 
-                with resource_open("BattleAnimations/{:02d}/arrangement".format(animation_id), "map", True) as map_f:
+                # Create tileset if this is the first time we've seen it.
+                # This is nicer than globbing and prevents unused tilesets from being compiled
+                tileset_id = int(yml_rep[animation_id]["Tileset"])
+                if tileset_id not in known_tilesets:
+                    with resource_open("BattleAnimations/Tilesets/{:02d}".format(tileset_id), "png") as tileset_f:
+                        tileset_image = open_indexed_image(tileset_f)
+                        tileset = EbGraphicTileset(256)
+                        tileset.from_image(tileset_image, TILESET_IMAGE_ARRANGEMENT, TILESET_IMAGE_PALETTE)
+                    known_tilesets[tileset_id] = len(self.tilesets)
+                    self.tilesets.append(tileset)
+                    tilesets_max_ID_used.append(0) # Populate later
+                animation.tileset = self.tilesets[known_tilesets[tileset_id]]
+                
+                with resource_open("BattleAnimations/Arrangements/{:02d}".format(animation_id), "map", True) as map_f:
                     animation.arrangements_from_map(map_f) # Frame count is filled in now
                     # Will fill in the arrangement pointers when we actually have the arrangements in the ROM
                     
                     # Find max tile ID used
-                    tilesets_max_ID_used[known_tilesets[tileset_hash]] = max(
-                        tilesets_max_ID_used[known_tilesets[tileset_hash]], 
+                    tilesets_max_ID_used[known_tilesets[tileset_id]] = max(
+                        tilesets_max_ID_used[known_tilesets[tileset_id]], 
                         max(max(max(tile.tile for tile in row) for row in arrangement.arrangement) for arrangement in animation.arrangements)
                         )
                     
@@ -395,12 +399,17 @@ class BattleAnimationModule(EbModule):
             tileset.tiles = tileset.tiles[:tileset.num_tiles_maximum]
         
     def write_to_project(self, resource_open):
+        battle_animation_yml = self.battle_animation_table.to_yml_rep()
         for i, animation in enumerate(self.battle_animations):
+            # Add extra fields to the battle animation yml
+            battle_animation_yml[i]["Tileset"] = self.tilesets.index(animation.tileset)
+            battle_animation_yml[i]["Palette"] = animation.palette.yml_rep()
+            
             # Write arrangements (tilemaps)
             # This is called ".map" just like the overworld map but it is a little different.
             # - Tile indexes are 2-digit instead of 3-digit (we can only have 256 tiles)
             # - The data is arranged into a series of rectangles representing a frame each
-            with resource_open("BattleAnimations/{:02d}/arrangement".format(i), "map", True) as f:
+            with resource_open("BattleAnimations/Arrangements/{:02d}".format(i), "map", True) as f:
                 for frame in animation.arrangements:
                     for row in range(frame.height):
                         for col in range(frame.width):
@@ -408,14 +417,15 @@ class BattleAnimationModule(EbModule):
                             f.write(" ")
                         f.write("\n")
                     f.write("\n")
-            
-            # Write tileset image                    
-            with resource_open("BattleAnimations/{:02d}/tileset".format(i), "png") as f:
-                image = TILESET_IMAGE_ARRANGEMENT.image(animation.tileset, animation.palette, True)
-                image.save(f, "png")
                 
         with resource_open("BattleAnimations/battle_animations", "yml", True) as f:
-            self.battle_animation_table.to_yml_file(f)
+            yml_dump(battle_animation_yml, f, False)
+        
+        # Write tileset images
+        for i, tileset in enumerate(self.tilesets):
+            with resource_open("BattleAnimations/Tilesets/{:02d}".format(i), "png") as f:
+                image = TILESET_IMAGE_ARRANGEMENT.image(tileset, TILESET_IMAGE_PALETTE, True)
+                image.save(f, "png")
     
     def upgrade_project(self, old_version, new_version, rom, old_compiled_rom, resource_open_r, resource_open_w, resource_delete):
         if old_version < 14:
