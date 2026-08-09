@@ -73,7 +73,7 @@ class AsmPointerReference(object):
         if self.validate_structure(rom):
             return (rom.read_multi(self.offset+6, 2) << 16) | rom.read_multi(self.offset+1, 2)
         else:
-            return False
+            return None
 
 class XlPointerReference(object):
     def __init__(self, offset):
@@ -93,4 +93,4 @@ class XlPointerReference(object):
         if self.validate_structure(rom):
             return rom.read_multi(self.offset+1, 3)
         else:
-            return False
+            return None

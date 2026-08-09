@@ -1,4 +1,4 @@
-from coilsnake.exceptions.common.exceptions import CoilSnakeTraceableError
+from coilsnake.exceptions.common.exceptions import CoilSnakeTraceableError, CoilSnakeUserError
 from coilsnake.model.common.ips import IpsPatch
 from coilsnake.model.eb.blocks import EbCompressibleBlock
 from coilsnake.model.eb.graphics import EbGraphicTileset, EbOneByteTileArrangement, EbTileArrangement, EbOneByteTileArrangementItem
@@ -53,6 +53,14 @@ del tile_id_to_write
 # Grayscale
 TILESET_IMAGE_PALETTE = EbPalette(1, 4, (0, 0, 0, 85, 85, 85, 170, 170, 170, 255, 255, 255))
 
+# Helper function for reading pointers from code
+def read_pointer_ref_or_default(ref, rom, default_addr):
+    addr = ref.read(rom)
+    if not addr:
+        log.warning("Failed to validate code-read pointer reference starting at offset ${:06X}; defaulting to vanilla address ${:06X}".format(ref.offset, default_addr))
+        return default_addr
+    return addr
+
 class BattleAnimation:
     def __init__(self,
         tileset_pointer_short, frame_duration, palette_cycle_duration,
@@ -101,11 +109,24 @@ class BattleAnimation:
         self.arrangements = []
         self.frame_count = 0
         raw: str = map_file.read()
-        text_frames = raw.split("\n\n")[:-1] # Last split is the trailing gap
+        text_frames = raw.split("\n\n")
+        if text_frames and not text_frames[-1]:
+            # The last split is from the trailing \n\n gap
+            text_frames.pop()
+        if not text_frames:
+            raise CoilSnakeUserError("Battle animation has no frames")
         
-        for text_frame in text_frames:
+        for i, text_frame in enumerate(text_frames):
             arrangement = EbOneByteTileArrangement(32, 32)
-            arrangement.arrangement = [[EbOneByteTileArrangementItem(int(x, 16)) for x in y.split()] for y in text_frame.split("\n")]
+            rows = text_frame.split("\n")
+            if len(rows) != arrangement.height:
+                raise CoilSnakeUserError("Frame {} has {} rows of tiles (expected {})".format(i, len(rows), arrangement.height))
+            for j, row in enumerate(rows):
+                tiles = row.split()
+                if len(tiles) != arrangement.width:
+                    raise CoilSnakeUserError("Frame {} row {} has {} tiles (expected {})".format(i, j, len(tiles), arrangement.width))
+                for k, tile in enumerate(tiles):
+                    arrangement.arrangement[j][k] = EbOneByteTileArrangementItem(int(tile, 16))
             self.arrangements.append(arrangement)
             self.frame_count += 1
             
@@ -118,7 +139,7 @@ class BattleAnimationModule(EbModule):
     NAME = "Battle Animations"
     
     # Animations config, arrangements, arrangement pointers, tilesets, and palettes
-    FREE_RANGES = [(0x0C2E19, 0x0CF617)]
+    FREE_RANGES = [(0x0C2E19, 0x0CF616)]
     
     def __init__(self):
         super(BattleAnimationModule, self).__init__()
@@ -135,25 +156,10 @@ class BattleAnimationModule(EbModule):
         # and applied to a base ROM for future compilations.
         # That means we need to read the code to find pointers to potentially relocated
         # tables, and do some guesswork (fancy programmers call it "heuristics") to find the length.
-        config_ptr = BATTLE_ANIMATION_TABLE_REFERENCES[0].read(rom)
-        if not config_ptr:
-            log.warning("Code-read battle animation table reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_TABLE_REFERENCES[0].offset))
-            config_ptr = BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS
-        
-        palettes_ptr = BATTLE_ANIMATION_PALETTE_TABLE_REFERENCES[0].read(rom)
-        if not palettes_ptr:
-            log.warning("Code-read battle animation palettes reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_PALETTE_TABLE_REFERENCES[0].offset))
-            palettes_ptr = BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS
-
-        arrangements_ptrs_ptr = BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES[0].read(rom)
-        if not arrangements_ptrs_ptr:
-            log.warning("Code-read battle animation arrangement pointer table reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES[0].offset))
-            arrangements_ptrs_ptr = BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS
-        
-        tilesets_bank_ptr = BATTLE_ANIMATION_TILESET_BANK_REFERENCES[0].read(rom)
-        if not tilesets_bank_ptr or tilesets_bank_ptr & 0xFFFF != 0: # Pointer should only include the bank byte
-            log.warning("Code-read battle animation tileset bank reference starting at ${:06X} was invalid, defaulting to vanilla address".format(BATTLE_ANIMATION_TILESET_BANK_REFERENCES[0].offset))
-            tilesets_bank_ptr = BATTLE_ANIMATION_TILESET_BANK_DEFAULT_ADDRESS
+        config_ptr = read_pointer_ref_or_default(BATTLE_ANIMATION_TABLE_REFERENCES[0], rom, BATTLE_ANIMATION_TABLE_DEFAULT_ADDRESS)
+        palettes_ptr = read_pointer_ref_or_default(BATTLE_ANIMATION_PALETTE_TABLE_REFERENCES[0], rom, BATTLE_ANIMATION_PALETTES_DEFAULT_ADDRESS)
+        arrangements_ptrs_ptr = read_pointer_ref_or_default(BATTLE_ANIMATION_ARRANGEMENT_PTRS_REFERENCES[0], rom, BATTLE_ANIMATION_ARRANGEMENT_PTRS_DEFAULT_ADDRESS)
+        tilesets_bank_ptr = read_pointer_ref_or_default(BATTLE_ANIMATION_TILESET_BANK_REFERENCES[0], rom, BATTLE_ANIMATION_TILESET_BANK_DEFAULT_ADDRESS)
             
         log.info("Found battle animation pointers:\n  Config table: ${:06X}\n  Palettes: ${:06X}\n  Arrangement ptrs: ${:06X}\n  Tileset bank: ${:06X}".format(
             config_ptr, palettes_ptr, arrangements_ptrs_ptr, tilesets_bank_ptr
@@ -228,7 +234,7 @@ class BattleAnimationModule(EbModule):
             tileset_ptr = from_snes_address(battle_animation.tileset_pointer_short | tilesets_bank_ptr)
             # Keep track of tilesets we've already seen and skip duplicating them
             # Not as crucial here as it is when writing ...
-            if not tileset_ptr in known_tilesets:
+            if tileset_ptr not in known_tilesets:
                 with EbCompressibleBlock() as compressed_block:
                     tileset = EbGraphicTileset(256)
                     compressed_block.from_compressed_block(rom, tileset_ptr)
@@ -310,24 +316,10 @@ class BattleAnimationModule(EbModule):
 
         
         # Write the config table. Fill in the final field: the short pointer to the tileset
-        self.battle_animation_table.recreate(len(self.battle_animations))
         for id, animation in enumerate(self.battle_animations):
             # This is slower, but better than keeping an index into the self.tilesets list in the
             # BattleAnimation object, because that keeps it more separate.
-            animation.tileset_pointer_short = tileset_short_ptrs[self.tilesets.index(animation.tileset)]
-            # Now fill in the fields
-            self.battle_animation_table[id] = [
-                animation.tileset_pointer_short,
-                animation.frame_duration,
-                animation.palette_cycle_duration,
-                animation.palette_cycle_lower_index,
-                animation.palette_cycle_upper_index,
-                animation.frame_count,
-                animation.targetting,
-                animation.enemy_color_delay,
-                animation.enemy_color_duration,
-                animation.enemy_color
-            ]
+            self.battle_animation_table[id][0] = tileset_short_ptrs[self.tilesets.index(animation.tileset)]
         battle_animation_table_offset = rom.allocate(size=self.battle_animation_table.size)
         self.battle_animation_table.to_block(rom, battle_animation_table_offset)
         # And repoint
@@ -381,6 +373,8 @@ class BattleAnimationModule(EbModule):
                 
                 with resource_open("BattleAnimations/Arrangements/{:02d}".format(animation_id), "map", True) as map_f:
                     animation.arrangements_from_map(map_f) # Frame count is filled in now
+                    # Put frame count in the table also
+                    self.battle_animation_table[animation_id][5] = animation.frame_count
                     # Will fill in the arrangement pointers when we actually have the arrangements in the ROM
                     
                     # Find max tile ID used
